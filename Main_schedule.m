@@ -1,0 +1,412 @@
+% Cleanup the workspace
+clear; close all; clc;
+ 
+%% Define constants and ranges
+
+% nominal values
+k_n = 1;
+m1_n = 1;
+m2_n = 1;
+
+% range of k
+k_range = [0.5, 2];
+
+% values of virtual controller
+mv = 600;
+kv1 = 0.35;
+kv2 = 2.9;
+
+% range of dv
+dv_range = [0, 2];
+
+%% Calculate observer M
+A=[0 0 1 0; 0 0 0 1; -k_n/m1_n k_n/m1_n 0 0; k_n/m2_n -k_n/m2_n 0 0];
+C=[0 1 0 0];
+ps=[-1-1j -1+1j -2-2j -2+2j];
+obs = place(A',C',ps);
+
+%% Define and run the GA
+% objective function
+N_monte_carlo = 10;
+endtime = 40;
+myObj = @(gene) acc_fitness(gene, N_monte_carlo, endtime, obs, k_range, mv, kv1, kv2); %m1_n, m2_n);
+
+% define the problem (search space, # genes, etc)
+% Problem.obj = @(x) myObj(x);
+% Problem.nVar = 35; % number of genes (variables)
+% Problem.ub = [ones(1,10) dv_range(2)*ones(1,25)];
+% Problem.lb  = [-1*ones(1,10) dv_range(1)*ones(1,25)];
+
+% set the stochastic parameters
+%M = 40; %80% number of chromosomes (candidate solutions)
+%N = Problem.nVar; % number of genes (variables)
+%MaxGen = 100 %1000; % 250
+Pc = 0.95;
+% Pm = 0.05;
+% Er = 0.05;
+fitfun  = @(x) myObj(x);
+PopSize = 200;
+MaxGens = 200;
+nvars   = 35*3;
+A       = [];
+b       = [];
+Aeq     = [];               
+beq     = [];
+lb      = [-1*ones(1,10) dv_range(1)*ones(1,25) -1*ones(1,10) dv_range(1)*ones(1,25) -1*ones(1,10) dv_range(1)*ones(1,25)];
+ub      = [ones(1,10) dv_range(2)*ones(1,25) ones(1,10) dv_range(2)*ones(1,25) ones(1,10) dv_range(2)*ones(1,25)];
+nonlcon = [];
+options = optimoptions('ga', 'PopulationSize', PopSize, 'MaxGenerations',...
+    MaxGens,'PlotFcn',@gaplotbestf);
+options.CrossoverFraction = Pc;
+
+% GA to search for near-optimal solution
+start = datetime
+%[BestChrom, cgcurve] = CGeneticAlgorithm(M , N, MaxGen, Pc, Pm, Er, Problem, 1);
+[BestChrom, fval, exitflag, output] = ga(fitfun, nvars, A, b, Aeq, beq, lb, ub, nonlcon, options);
+stop = datetime
+disp(stop-start)
+BestChrom
+%fname = input('Enter file name: ',"s")
+%save(fname)
+
+%% Plot Controller Performance
+endtime = 40
+
+ks = k_range(1):0.1*3:k_range(2);
+ks = [ks 1];
+
+for k = ks
+    fprintf('k = %f\n',k)
+
+    % Simulate
+    x_0 = [0; 0; 0; 1; 0; 0; 0; 0; 0; 0];
+    %options = odeset('AbsTol',1e-3);
+    %ode45?
+    [ts,xs] = ode23(@(t,x) x_dot_noise(t, x, BestChrom, obs, k, mv, kv1, kv2), [0 endtime], x_0);%, options); .Gene
+
+    figure(2)
+    subplot(3,1,1)
+    plot(ts, xs(:,1))
+    %legend('x_1')
+    xlabel('time (s)')
+    ylabel('x_1 (m)')
+    title(strcat('k=',num2str(k)))
+
+    subplot(3,1,2)
+    plot(ts, xs(:,2))
+    %legend('x_2')
+    xlabel('time (s)')
+    ylabel('x_2 (m)')
+    %title(strcat('k=',num2str(k)))
+
+    subplot(3,1,3)
+    
+    u = zeros(1,length(ts));
+    for n = 1:length(ts)
+        state = xs(n,:);
+
+        %dv = FIS(BestChrom.Gene, state(5)-state(9), state(6)-state(10));
+        FIS1 = FIS(BestChrom(1:35),state(5),state(7));
+        FIS2 = FIS(BestChrom(36:70),state(6),state(8));
+        dv = FIS(BestChrom(71:105), FIS1, FIS2);
+        u(n) = -( kv1*(state(5)-state(9)) + dv*(state(7)-state(10)) );
+    end
+    plot(ts, u)
+    hold on
+    plot(ts, ones(1,length(ts)), 'r')
+    plot(ts, -ones(1,length(ts)), 'r')
+    %legend('u')
+    xlabel('time (s)')
+    ylabel('u (N)')
+    %title(strcat('k=',num2str(k)))
+    hold off
+
+    pause
+end
+subplot(3,1,1)
+ylim([-0.1 0.1])
+subplot(3,1,2)
+ylim([-0.1 0.1])
+pause
+
+% for k = ks
+%     fprintf('k = %f\n',k)
+% 
+%     % Simulate
+%     x_0 = [0; 0; 0; -1; 0; 0; 0; 0; 0; 0];
+%     %options = odeset('AbsTol',1e-3);
+%     %ode45?
+%     [ts,xs] = ode23(@(t,x) x_dot_noise(t, x, BestChrom.Gene, obs, k, mv, kv1, kv2), [0 endtime], x_0);%, options);
+% 
+%     figure(2)
+%     subplot(3,1,1)
+%     plot(ts, xs(:,1))
+%     %legend('x_1')
+%     xlabel('time (s)')
+%     ylabel('x_1 (m)')
+%     title(strcat('k=',num2str(k)))
+% 
+%     subplot(3,1,2)
+%     plot(ts, xs(:,2))
+%     %legend('x_2')
+%     xlabel('time (s)')
+%     ylabel('x_2 (m)')
+%     %title(strcat('k=',num2str(k)))
+% 
+%     subplot(3,1,3)
+%     
+%     u = zeros(1,length(ts));
+%     for n = 1:length(ts)
+%         state = xs(n,:);
+% 
+%         dv = FIS(BestChrom.Gene, state(5)-state(9), state(6)-state(10));
+%         %dv = FIS(BestChrom.Gene, state(5), state(6));
+%         u(n) = -( kv1*(state(5)-state(9)) + dv*(state(7)-state(10)) );
+%     end
+%     plot(ts, u)
+%     hold on
+%     plot(ts, ones(1,length(ts)), 'r')
+%     plot(ts, -ones(1,length(ts)), 'r')
+%     %legend('u')
+%     xlabel('time (s)')
+%     ylabel('u (N)')
+%     %title(strcat('k=',num2str(k)))
+%     hold off
+% 
+%     pause
+% end
+% 
+% subplot(3,1,1)
+% ylim([-0.1 0.1])
+% subplot(3,1,2)
+% ylim([-0.1 0.1])
+% pause
+
+%% Monto Carlo to calc Probs
+
+% seed rng
+rng(1)
+
+N_monte_carlo = 1000
+endtime = 40
+
+u_above_thresh = zeros(1,N_monte_carlo);
+settling_time_above_thresh = zeros(1,N_monte_carlo);
+x_above_thresh = zeros(1,N_monte_carlo);
+for sim_n = 1:N_monte_carlo
+    if mod(sim_n,50) == 0
+        fprintf('Monte Carlo %i\n',sim_n)
+    end
+
+    % determine k value
+    k = k_range(1) + (k_range(2)-k_range(1))*rand(1);
+
+    % Simulate
+    x_0 = [0; 0; 0; 1; 0; 0; 0; 0; 0; 0];
+    %options = odeset('AbsTol',1e-3);
+    %ode45?
+    [ts,xs] = ode23(@(t,x) x_dot_noise(t, x, BestChrom, obs, k, mv, kv1, kv2), [0 endtime], x_0);%, options);
+    %disp(length(ts))
+
+    % Calculate cost
+
+    for n = 1:length(ts)
+        t = ts(n);
+        state = xs(n,:);
+
+        % u exceeds bounds
+        %dv = FIS(BestChrom.Gene, state(5)-state(9), state(6)-state(10));
+        FIS1 = FIS(BestChrom(1:35),state(5),state(3));
+        FIS2 = FIS(BestChrom(36:70),state(6),state(4));
+        dv = FIS(BestChrom(71:105), FIS1, FIS2);
+        u = -( kv1*(state(5)-state(9)) + dv*(state(7)-state(10)) );
+        if abs(u) > 1
+            u_above_thresh(sim_n) = 1;
+        end
+
+        max_state = max(abs(state(1)), abs(state(2)));
+        % settling time > 15 seconds
+        if t >= 15
+            if max_state > 0.1
+                settling_time_above_thresh(sim_n) = 1;
+            end
+        end
+
+        % x above bounds ('unstable')
+        if max_state > 2
+            x_above_thresh(sim_n) = 1;
+        end     
+
+    end
+end
+
+% probability estimates
+probability_intability = sum(x_above_thresh)/N_monte_carlo
+probability_exceeds_settling_time = sum(settling_time_above_thresh)/N_monte_carlo
+probability_exceeds_control = sum(u_above_thresh)/N_monte_carlo
+
+confidence = 0.95
+
+instability_bounds = [upper_bound_confidence_binomial_approximation(sum(x_above_thresh), N_monte_carlo, confidence),...
+lower_bound_confidence_binomial_approximation(sum(x_above_thresh), N_monte_carlo, confidence)]
+
+settling_bounds = [upper_bound_confidence_binomial_approximation(sum(settling_time_above_thresh), N_monte_carlo, confidence),...
+lower_bound_confidence_binomial_approximation(sum(settling_time_above_thresh), N_monte_carlo, confidence)]
+
+control_bounds = [upper_bound_confidence_binomial_approximation(sum(u_above_thresh), N_monte_carlo, confidence),...
+lower_bound_confidence_binomial_approximation(sum(u_above_thresh), N_monte_carlo, confidence)]
+
+
+%% Plot the membership functions
+xs = linspace(-1.1,1.1,500);
+gene = BestChrom;
+
+% mem func centers
+x_c1 = gene(1);
+x_c2 = gene(2);
+x_c3 = gene(3);
+x_c4 = gene(4);
+x_c5 = gene(5);
+
+xd_c1 = gene(6);
+xd_c2 = gene(7);
+xd_c3 = gene(8);
+xd_c4 = gene(9);
+xd_c5 = gene(10);
+
+% determine membership values
+for n = 1:length(xs)
+    x = xs(n);
+    % determine membership values x
+    mu_x1(n) = lshlder(x, x_c1, x_c2, -2);
+    mu_x2(n) = triangle(x, x_c2, x_c3, x_c1);
+    mu_x3(n) = triangle(x, x_c3, x_c4, x_c2);
+    mu_x4(n) = triangle(x, x_c4, x_c5, x_c3);
+    mu_x5(n) = rshlder(x, x_c5, 2, x_c4);
+
+    % determine membership values xd
+    mu_xd1(n) = lshlder(x, xd_c1, xd_c2, -2);
+    mu_xd2(n) = triangle(x, xd_c2, xd_c3, xd_c1);
+    mu_xd3(n) = triangle(x, xd_c3, xd_c4, xd_c2);
+    mu_xd4(n) = triangle(x, xd_c4, xd_c5, xd_c3);
+    mu_xd5(n) = rshlder(x, xd_c5, 2, xd_c4);
+end
+
+figure(3)
+subplot(2,1,1)
+hold on
+plot(xs,mu_x1)
+plot(xs,mu_x2)
+plot(xs,mu_x3)
+plot(xs,mu_x4)
+plot(xs,mu_x5)
+xlabel('Displacement 1')
+legend('VS','S','Z','L','VL','location','west')
+ylabel('membership')
+
+%figure(4)
+subplot(2,1,2)
+hold on
+plot(xs,mu_xd1)
+plot(xs,mu_xd2)
+plot(xs,mu_xd3)
+plot(xs,mu_xd4)
+plot(xs,mu_xd5)
+xlabel('Displacement 2')
+legend('VS','S','Z','L','VL','location','west')
+ylabel('membership')
+
+
+%% Plot the FIS control surface
+xs = linspace(-1.1,1.1,100);
+xds = linspace(-1.1,1.1,100);
+gene = BestChrom.Gene;
+
+% mem func centers
+damps = zeros(length(xs), length(xds));
+
+% determine membership values
+for n = 1:length(xs)
+    for m = 1:length(xds)
+        x = xs(n);
+        xd = xds(m);
+        damps(n,m) = FIS(gene,x,xd);
+    end
+end
+
+figure(5)
+surf(xs, xds, damps)
+xlabel('Displacement 1')
+ylabel('Displacement 2')
+zlabel('d_v')
+title('Damping Surface')
+
+%% Plot Controller Performance
+endtime = 20
+
+ks = [k_range(1) 1 k_range(2)];
+
+figure(6)
+for k = ks
+    fprintf('k = %f\n',k)
+
+    % Simulate
+    x_0 = [0; 0; 0; 1; 0; 0; 0; 0; 0; 0];
+    %options = odeset('AbsTol',1e-3);
+    %ode45?
+    [ts,xs] = ode23(@(t,x) x_dot_noise(t, x, BestChrom.Gene, obs, k, mv, kv1, kv2), [0 endtime], x_0);%, options);
+
+    subplot(3,1,1)
+    hold on
+    plot(ts, xs(:,1))
+    %legend('x_1')
+
+    subplot(3,1,2)
+    hold on
+    plot(ts, xs(:,2))
+    %legend('x_2')
+    %title(strcat('k=',num2str(k)))
+
+    subplot(3,1,3)
+    hold on
+    
+    u = zeros(1,length(ts));
+    for n = 1:length(ts)
+        state = xs(n,:);
+
+        %dv = FIS(BestChrom.Gene, state(5)-state(9), state(6)-state(10));
+        FIS1 = FIS(BestChrom(1:35),state(5),state(7));
+        FIS2 = FIS(BestChrom(36:70),state(6),state(8));
+        dv = FIS(BestChrom(71:105), FIS1, FIS2);
+        u(n) = -( kv1*(state(5)-state(9)) + dv*(state(7)-state(10)) );
+    end
+    plot(ts, u)
+    hold on
+    
+    %legend('u')
+    
+    %title(strcat('k=',num2str(k)))
+
+    disp(['Max u: ' , num2str(max(abs(u)))]);
+
+    pause
+end
+
+subplot(3,1,1)
+xlabel('time (s)')
+ylabel('x_1')
+legend(strcat('k=',num2str(ks(1))), strcat('k=',num2str(ks(2))), strcat('k=',num2str(ks(3))))
+grid on
+
+subplot(3,1,2)
+xlabel('time (s)')
+ylabel('x_2')
+grid on
+
+subplot(3,1,3)
+hold on
+plot(ts, ones(1,length(ts)), 'r')
+plot(ts, -ones(1,length(ts)), 'r')
+xlabel('time (s)')
+ylabel('u')
+grid on
