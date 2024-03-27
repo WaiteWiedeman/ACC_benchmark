@@ -30,17 +30,7 @@ obs = place(A',C',ps);
 N_monte_carlo = 10;
 endtime = 40;
 myObj = @(gene) acc_fitness(gene, N_monte_carlo, endtime, obs, k_range, mv, kv1, kv2); %m1_n, m2_n);
-
-% define the problem (search space, # genes, etc)
-% Problem.obj = @(x) myObj(x);
-% Problem.nVar = 35; % number of genes (variables)
-% Problem.ub = [ones(1,10) dv_range(2)*ones(1,25)];
-% Problem.lb  = [-1*ones(1,10) dv_range(1)*ones(1,25)];
-
-% set the stochastic parameters
-%M = 40; %80% number of chromosomes (candidate solutions)
-%N = Problem.nVar; % number of genes (variables)
-%MaxGen = 100 %1000; % 250
+% GA parameters
 Pc = 0.95;
 % Pm = 0.05;
 % Er = 0.05;
@@ -58,7 +48,6 @@ nonlcon = [];
 options = optimoptions('ga', 'PopulationSize', PopSize, 'MaxGenerations',...
     MaxGens,'PlotFcn',@gaplotbestf);
 options.CrossoverFraction = Pc;
-
 % GA to search for near-optimal solution
 start = datetime
 %[BestChrom, cgcurve] = CGeneticAlgorithm(M , N, MaxGen, Pc, Pm, Er, Problem, 1);
@@ -82,18 +71,20 @@ for k = ks
     x_0 = [0; 0; 0; 1; 0; 0; 0; 0; 0; 0];
     %options = odeset('AbsTol',1e-3);
     %ode45?
-    [ts,xs] = ode23(@(t,x) x_dot_noise(t, x, BestChrom, obs, k, mv, kv1, kv2), [0 endtime], x_0);%, options); .Gene
-
+    [ts,xs] = ode23(@(t,x) x_dot(t, x, BestChrom, obs, k, mv, kv1, kv2), [0 endtime], x_0);%, options); .Gene
+    info = lsiminfo(xs(:,1),ts,'SettlingTimeThreshold',0.1);
+    disp(info.TransientTime)
+    
     figure(2)
     subplot(3,1,1)
-    plot(ts, xs(:,1))
+    plot(ts, xs(:,1),ts,xs(:,5))
     %legend('x_1')
     xlabel('time (s)')
     ylabel('x_1 (m)')
     title(strcat('k=',num2str(k)))
 
     subplot(3,1,2)
-    plot(ts, xs(:,2))
+    plot(ts, xs(:,2),ts,xs(:,6))
     %legend('x_2')
     xlabel('time (s)')
     ylabel('x_2 (m)')
@@ -216,8 +207,8 @@ for sim_n = 1:N_monte_carlo
 
         % u exceeds bounds
         %dv = FIS(BestChrom.Gene, state(5)-state(9), state(6)-state(10));
-        FIS1 = FIS(BestChrom(1:35),state(5),state(3));
-        FIS2 = FIS(BestChrom(36:70),state(6),state(4));
+        FIS1 = FIS(BestChrom(1:35),state(5),state(7));
+        FIS2 = FIS(BestChrom(36:70),state(6),state(8));
         dv = FIS(BestChrom(71:105), FIS1, FIS2);
         u = -( kv1*(state(5)-state(9)) + dv*(state(7)-state(10)) );
         if abs(u) > 1

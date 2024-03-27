@@ -5,8 +5,8 @@ disturbance = 0;
 measurement_noise = 0; %0.01*sin(2*pi*2*t);
 
 %dv = FIS(gene, state(5)-state(9), state(6)-state(10));
-FIS1 = FIS(gene(1:35),state(5),state(3));
-FIS2 = FIS(gene(36:70),state(6),state(4));
+FIS1 = FIS(gene(1:35),state(5),state(7));
+FIS2 = FIS(gene(36:70),state(6),state(8));
 dv = FIS(gene(71:105), FIS1, FIS2);
 
 u = -( kv1*(state(5)-state(9)) + dv*(state(7)-state(10)) );
